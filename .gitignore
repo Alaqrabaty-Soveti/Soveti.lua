@@ -33,3 +33,6 @@ Thumbs.db
 node_modules/
 selene.toml.user
 .polydev/
+
+# Delivery archive (build output)
+*.zip
