@@ -1,0 +1,52 @@
+{
+  "name": "EchoesOfDawn",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "CinematicIntro": {
+        "$className": "Folder",
+        "Config": {
+          "$className": "ModuleScript",
+          "$path": "src/Config.lua"
+        },
+        "CameraController": {
+          "$className": "ModuleScript",
+          "$path": "src/CameraController.lua"
+        },
+        "UIManager": {
+          "$className": "ModuleScript",
+          "$path": "src/UIManager.lua"
+        },
+        "AudioManager": {
+          "$className": "ModuleScript",
+          "$path": "src/AudioManager.lua"
+        },
+        "EffectsManager": {
+          "$className": "ModuleScript",
+          "$path": "src/EffectsManager.lua"
+        }
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "CinematicIntroClient": {
+          "$className": "LocalScript",
+          "$path": "src/IntroClient.lua"
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "CinematicIntroServer": {
+        "$className": "Script",
+        "$path": "src/IntroServer.lua"
+      }
+    }
+  }
+}

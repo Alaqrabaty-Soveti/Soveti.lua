@@ -1,0 +1,34 @@
+# Rojo / Roblox build artifacts
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm.lock
+*.rbxmx.lock
+sourcemap.json
+
+# Rojo local state
+.rojo/
+*.project.json.user
+
+# Secrets — never commit these
+.env
+.env.*
+*.key
+*.pem
+secrets/
+!secrets/README.md
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Tooling caches
+node_modules/
+selene.toml.user

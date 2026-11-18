@@ -1,0 +1,154 @@
+--[[
+	CameraController.lua — drives the cinematic camera.
+	- Saves the player's original camera state and restores it on stop.
+	- Tweens between configured shots using TweenService.
+	- Adds a subtle shake offset on shots flagged with `shake`.
+	- Fully interruptible: stop() ends tweens and restores the camera.
+	Import this file into a ModuleScript named "CameraController".
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local CameraController = {}
+CameraController.__index = CameraController
+
+function CameraController.new()
+	return setmetatable({}, CameraController)
+end
+
+function CameraController:start(config)
+	local player = Players.LocalPlayer
+	local camera = Workspace.CurrentCamera
+	if not player or not camera then
+		return false
+	end
+
+	self.player = player
+	self.config = config
+	self.camera = camera
+	self.running = true
+	self.shakeActive = false
+	self.shakeEndTime = 0
+	self.tweens = {}
+
+	-- Remember original camera state.
+	self.savedState = {
+		camType = camera.CameraType,
+		cframe = camera.CFrame,
+		focus = camera.Focus,
+		fov = camera.FieldOfView,
+	}
+
+	-- Ensure we have a character reference (wait if needed).
+	self:_refreshRoot(true)
+
+	-- Holder object we tween; a render loop applies it plus shake.
+	self.holder = Instance.new("CFrameValue")
+	self.holder.Name = "IntroCamHolder"
+	self.holder.Value = camera.CFrame
+	self.holder.Parent = ReplicatedStorage
+
+	camera.CameraType = Enum.CameraType.Scriptable
+
+	self._renderConn = RunService.RenderStepped:Connect(function()
+		if not self.running then
+			return
+		end
+		local base = self.holder.Value
+		if self.shakeActive and os.clock() < self.shakeEndTime then
+			local amp = config.Effects.ShakeAmplitude
+			local dx = (math.random() * 2 - 1) * amp
+			local dy = (math.random() * 2 - 1) * amp
+			local dz = (math.random() * 2 - 1) * amp
+			base = base * CFrame.new(dx, dy, dz)
+		end
+		camera.CFrame = base
+	end)
+
+	task.spawn(function()
+		self:_runShots()
+	end)
+
+	return true
+end
+
+function CameraController:_runShots()
+	local shots = self.config.CameraShots
+	local effects = self.config.Effects
+	for _, shot in ipairs(shots) do
+		if not self.running then
+			break
+		end
+
+		local targetCF, targetFov = self:_resolveShot(shot)
+		local dur = shot.duration or 2
+		local style = Enum.EasingStyle[shot.easingStyle] or Enum.EasingStyle.Sine
+		local dir = Enum.EasingDirection[shot.easingDirection] or Enum.EasingDirection.InOut
+		local info = TweenInfo.new(dur, style, dir)
+
+		local cfTween = TweenService:Create(self.holder, info, { Value = targetCF })
+		cfTween:Play()
+
+		if targetFov then
+			local fovTween = TweenService:Create(self.camera, info, { FieldOfView = targetFov })
+			fovTween:Play()
+		end
+
+		if shot.shake then
+			self.shakeActive = true
+			self.shakeEndTime = os.clock() + (effects.ShakeTime or 0.4)
+		end
+
+		task.wait(dur)
+		self.shakeActive = false
+	end
+end
+
+function CameraController:_resolveShot(shot)
+	local targetCF
+	if shot.attachment then
+		local obj = Workspace:FindFirstChild(shot.attachment)
+		if obj then
+			if obj:IsA("BasePart") then
+				targetCF = obj.CFrame
+			elseif obj:IsA("Attachment") then
+				targetCF = obj.WorldCFrame
+			end
+		end
+	end
+
+	if not targetCF then
+		local basePos = self.root and self.root.Position or Vector3.zero
+		local offset = shot.offset or Vector3.new(0, 3, -10)
+		local look = (self.root and self.root.Position or Vector3.zero) + (shot.lookOffset or Vector3.zero)
+		targetCF = CFrame.lookAt(basePos + offset, look)
+	end
+
+	return targetCF, shot.fov
+end
+
+function CameraController:stop()
+	self.running = false
+	if self._renderConn then
+		self._renderConn:Disconnect()
+		self._renderConn = nil
+	end
+	if self.holder then
+		self.holder:Destroy()
+		self.holder = nil
+	end
+	if self.savedState and self.camera then
+		local s = self.savedState
+		self.camera.CameraType = s.camType
+		self.camera.CFrame = s.cframe
+		self.camera.Focus = s.focus
+		self.camera.FieldOfView = s.fov
+	end
+	self.savedState = nil
+end
+
+return CameraController

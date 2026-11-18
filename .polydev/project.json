@@ -1,0 +1,13 @@
+{
+  "name": "مشروع 1",
+  "templateId": "empty",
+  "agent": {
+    "profile": "light",
+    "planApproval": true,
+    "askUser": true
+  },
+  "ai": {
+    "provider": "free_ai_default",
+    "model": ""
+  }
+}

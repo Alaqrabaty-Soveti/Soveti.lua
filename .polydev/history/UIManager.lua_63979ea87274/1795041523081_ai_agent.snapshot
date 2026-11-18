@@ -1,0 +1,24 @@
+--[[
+	UIManager.lua — responsive cinematic UI and transitions.
+	Builds all ScreenGui elements in code so no binary assets are needed.
+	Import this file into a ModuleScript named "UIManager".
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local UIManager = {}
+UIManager.__index = UIManager
+
+local function tween(obj, info, goal)
+	local t = TweenService:Create(obj, info, goal::: any)
+	t:Play()
+	return t
+end
+
+function UIManager.new(config)
+	local self = setmetatable({}, UIManagerAPT)
+end
+
+return UIManager
