@@ -22,3 +22,9 @@ No npm/package.json: there is no build step and no dev server for this repo.
 - Intro runs client-side only; server module is optional coordination.
 - No bundled audio/image asset IDs: `Config.Audio` defaults to `0` (disabled) on purpose.
 - `Config.CameraShots` durations must sum to `Config.IntroDuration` and match `Config.Audio.SyncPoints`.
+
+## Delivery
+- Target GitHub repo: `Alaqrabaty-Soveti/Soveti.lua` (public, still empty — no branches yet).
+- Push requires a token with **Contents: Read and write**. A read-only token fails with HTTP 403
+  `Resource not accessible by personal access token` (`x-accepted-github-permissions: contents=write`).
+- `cinematic-intro-roblox.zip` is a local delivery fallback (git-ignored, never committed).
