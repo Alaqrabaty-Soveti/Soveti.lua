@@ -1,20 +1,23 @@
 --[[
-	CameraController.lua — drives the cinematic camera.
-	- Saves the player's original camera state and restores it on stop.
-	- Tweens between configured shots using TweenService.
-	- Adds a subtle shake offset on shots flagged with `shake`.
-	- Fully interruptible: stop() ends tweens and restores the camera.
-	Import this file into a ModuleScript named "CameraController".
+	CameraController.lua — cinematic camera rig.
+	Features: per-shot tweening, dutch roll, handheld sway, noise shake,
+	dolly FOV punches, attachment framing, safe restore on stop.
+
+	Place as: ReplicatedStorage.CinematicIntro.CameraController (ModuleScript)
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local CameraController = {}
 CameraController.__index = CameraController
+
+local function noise(t, seed)
+	-- Cheap deterministic pseudo-noise in [-1, 1].
+	return math.noise(t, seed, seed * 0.37) * 2
+end
 
 function CameraController.new()
 	return setmetatable({}, CameraController)
@@ -31,42 +34,35 @@ function CameraController:start(config)
 	self.config = config
 	self.camera = camera
 	self.running = true
-	self.shakeActive = false
-	self.shakeEndTime = 0
+	self.shakeStrength = 0
+	self.shakeEndsAt = 0
 	self.tweens = {}
+	self.clock = 0
+	self.dolly = 0
 
-	-- Remember original camera state.
 	self.savedState = {
 		camType = camera.CameraType,
 		cframe = camera.CFrame,
 		focus = camera.Focus,
 		fov = camera.FieldOfView,
+		roll = camera.CFrame:ToOrientation(),
 	}
 
-	-- Ensure we have a character reference (wait if needed).
 	self:_refreshRoot(true)
 
-	-- Holder object we tween; a render loop applies it plus shake.
-	self.holder = Instance.new("CFrameValue")
-	self.holder.Name = "IntroCamHolder"
-	self.holder.Value = camera.CFrame
-	self.holder.Parent = ReplicatedStorage
+	self.base = Instance.new("CFrameValue")
+	self.base.Name = "IntroCamBase"
+	self.base.Value = camera.CFrame
+	self.base.Parent = Workspace
 
 	camera.CameraType = Enum.CameraType.Scriptable
 
-	self._renderConn = RunService.RenderStepped:Connect(function()
+	self.conn = RunService.RenderStepped:Connect(function(dt)
 		if not self.running then
 			return
 		end
-		local base = self.holder.Value
-		if self.shakeActive and os.clock() < self.shakeEndTime then
-			local amp = config.Effects.ShakeAmplitude
-			local dx = (math.random() * 2 - 1) * amp
-			local dy = (math.random() * 2 - 1) * amp
-			local dz = (math.random() * 2 - 1) * amp
-			base = base * CFrame.new(dx, dy, dz)
-		end
-		camera.CFrame = base
+		self.clock = self.clock + dt
+		self:_render(dt)
 	end)
 
 	task.spawn(function()
@@ -92,34 +88,75 @@ function CameraController:_refreshRoot(waitForIt)
 	end
 	if character then
 		self.character = character
-		self.root = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 3)
+		self.root = character:FindFirstChild("HumanoidRootPart")
+			or character:WaitForChild("HumanoidRootPart", 4)
 	else
 		self.root = nil
 	end
 	return self.root
 end
 
+function CameraController:_render(dt)
+	local camera = self.camera
+	if not camera or not self.base then
+		return
+	end
+
+	local base = self.base.Value
+	local effects = self.config.Effects
+	local shot = self.currentShot or {}
+	local swayAmount = (shot.sway or 0.5) * (effects.HandheldSway or 0)
+	local t = self.clock
+
+	-- Handheld sway: slow drift that never fights the tween.
+	if swayAmount > 0 then
+		local sx = noise(t * 0.55, 11) * swayAmount
+		local sy = noise(t * 0.47, 23) * swayAmount * 0.8
+		local sr = noise(t * 0.33, 37) * swayAmount * 0.35
+		base = base * CFrame.new(sx, sy, 0) * CFrame.Angles(0, 0, math.rad(sr))
+	end
+
+	-- Shake: high frequency, decays over ShakeTime.
+	if self.shakeStrength > 0 then
+		if t >= self.shakeEndsAt then
+			self.shakeStrength = 0
+		else
+			local falloff = (self.shakeEndsAt - t) / math.max(effects.ShakeTime or 0.5, 0.01)
+			local amp = (effects.ShakeAmplitude or 0.6) * self.shakeStrength * falloff
+			local f = effects.ShakeFrequency or 26
+			base = base
+				* CFrame.new(noise(t * f, 3) * amp, noise(t * f, 7) * amp, noise(t * f, 13) * amp * 0.5)
+				* CFrame.Angles(
+					math.rad(noise(t * f * 0.8, 19) * amp * 0.5),
+					math.rad(noise(t * f * 0.8, 29) * amp * 0.5),
+					0
+				)
+		end
+	end
+
+	camera.CFrame = base
+end
+
 function CameraController:_runShots()
 	local shots = self.config.CameraShots
-	local effects = self.config.Effects
 	for _, shot in ipairs(shots) do
 		if not self.running then
 			break
 		end
 
-		-- Refresh the character reference (respawn safety).
 		if not self.root or not self.root.Parent then
 			self:_refreshRoot(false)
 		end
 
+		self.currentShot = shot
 		local targetCF, targetFov = self:_resolveShot(shot)
 		local dur = shot.duration or 2
 		local style = Enum.EasingStyle[shot.easingStyle] or Enum.EasingStyle.Sine
 		local dir = Enum.EasingDirection[shot.easingDirection] or Enum.EasingDirection.InOut
 		local info = TweenInfo.new(dur, style, dir)
 
-		if self.holder then
-			local cfTween = TweenService:Create(self.holder, info, { Value = targetCF })
+		if self.base then
+			local cfTween = TweenService:Create(self.base, info, { Value = targetCF })
 			table.insert(self.tweens, cfTween)
 			cfTween:Play()
 		end
@@ -130,57 +167,79 @@ function CameraController:_runShots()
 			fovTween:Play()
 		end
 
-		if shot.shake then
-			self.shakeActive = true
-			self.shakeEndTime = os.clock() + (effects.ShakeTime or 0.4)
+		if shot.shake and shot.shake > 0 then
+			self:shake(shot.shake)
 		end
 
 		task.wait(dur)
-		self.shakeActive = false
 	end
 end
 
 function CameraController:_resolveShot(shot)
 	local targetCF
+
 	if shot.attachment then
-		local obj = Workspace:FindFirstChild(shot.attachment)
+		local obj = Workspace:FindFirstChild(shot.attachment, true)
 		if obj then
-			if obj:IsA("BasePart") then
-				targetCF = obj.CFrame
-			elseif obj:IsA("Attachment") then
+			if obj:IsA("Attachment") then
 				targetCF = obj.WorldCFrame
+			elseif obj:IsA("BasePart") then
+				targetCF = obj.CFrame
 			end
 		end
 	end
 
 	if not targetCF then
-		local basePos = self.root and self.root.Position or Vector3.zero
+		local origin = (self.root and self.root.Position) or Vector3.zero
 		local offset = shot.offset or Vector3.new(0, 3, -10)
-		local look = (self.root and self.root.Position or Vector3.zero) + (shot.lookOffset or Vector3.zero)
-		targetCF = CFrame.lookAt(basePos + offset, look)
+		local look = origin + (shot.lookOffset or Vector3.new(0, 1.5, 0))
+		local eye = origin + offset
+		targetCF = CFrame.lookAt(eye, look)
+	end
+
+	if shot.roll and shot.roll ~= 0 then
+		targetCF = targetCF * CFrame.Angles(0, 0, math.rad(shot.roll))
 	end
 
 	return targetCF, shot.fov
 end
 
+function CameraController:shake(strength)
+	local effects = self.config.Effects
+	self.shakeStrength = math.max(self.shakeStrength, math.clamp(strength or 1, 0, 3))
+	self.shakeEndsAt = self.clock + (effects.ShakeTime or 0.5)
+end
+
+function CameraController:setFov(fov, duration)
+	if not self.camera then
+		return
+	end
+	TweenService:Create(
+		self.camera,
+		TweenInfo.new(duration or 0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+		{ FieldOfView = fov }
+	):Play()
+end
+
 function CameraController:stop()
 	self.running = false
-	if self._renderConn then
-		self._renderConn:Disconnect()
-		self._renderConn = nil
+
+	if self.conn then
+		self.conn:Disconnect()
+		self.conn = nil
 	end
-	if self.tweens then
-		for _, tween in ipairs(self.tweens) do
-			pcall(function()
-				tween:Cancel()
-			end)
-		end
-		self.tweens = {}
+	for _, tween in ipairs(self.tweens or {}) do
+		pcall(function()
+			tween:Cancel()
+		end)
 	end
-	if self.holder then
-		self.holder:Destroy()
-		self.holder = nil
+	self.tweens = {}
+
+	if self.base then
+		self.base:Destroy()
+		self.base = nil
 	end
+
 	if self.savedState and self.camera then
 		local s = self.savedState
 		pcall(function()
@@ -190,7 +249,9 @@ function CameraController:stop()
 			self.camera.FieldOfView = s.fov
 		end)
 	end
+
 	self.savedState = nil
+	self.currentShot = nil
 	self.root = nil
 	self.character = nil
 end

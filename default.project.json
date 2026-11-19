@@ -26,6 +26,10 @@
         "EffectsManager": {
           "$className": "ModuleScript",
           "$path": "src/EffectsManager.lua"
+        },
+        "VFXManager": {
+          "$className": "ModuleScript",
+          "$path": "src/VFXManager.lua"
         }
       }
     },

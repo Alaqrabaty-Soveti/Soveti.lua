@@ -21,7 +21,7 @@ end
 -- 1) Tell each client when it is safe to start (after character spawn).
 local function onPlayerAdded(player)
 	player.CharacterAdded:Connect(function(character)
-		local humanoid = character:WaitForChild("Humanoid", 1071)
+		local humanoid = character:WaitForChild("Humanoid", 5)
 		if humanoid then
 			task.wait(0.1)
 		end

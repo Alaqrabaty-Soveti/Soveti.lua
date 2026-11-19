@@ -1,23 +1,22 @@
 --[[
-	IntroClient.lua — entry point (LocalScript in StarterPlayerScripts).
-	Owns the sequence: camera, UI, effects, audio, skip handling and cleanup.
+	IntroClient.lua — the director (LocalScript in StarterPlayerScripts).
+	Owns the whole sequence: camera rig, UI, VFX, post FX, audio, timeline,
+	skip handling, progress bar, watchdog and guaranteed cleanup.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 
--- Load modules from ReplicatedStorage.CinematicIntro
 local modules = ReplicatedStorage:WaitForChild("CinematicIntro")
 local Config = require(modules:WaitForChild("Config"))
 local CameraController = require(modules:WaitForChild("CameraController"))
 local UIManager = require(modules:WaitForChild("UIManager"))
 local AudioManager = require(modules:WaitForChild("AudioManager"))
 local EffectsManager = require(modules:WaitForChild("EffectsManager"))
+local VFXManager = require(modules:WaitForChild("VFXManager"))
 
--- Prevent double playback (e.g. script re-runs / respawns).
 local PLAYED_ATTRIBUTE = "CinematicIntroPlayed"
 if player:GetAttribute(PLAYED_ATTRIBUTE) then
 	return
@@ -31,9 +30,12 @@ local state = {
 	ui = nil,
 	audio = nil,
 	effects = nil,
+	vfx = nil,
 	controls = nil,
+	startedAt = os.clock(),
 }
 
+-- ── Controls lock ───────────────────────────────────────────────────────────
 local function getControls()
 	local playerScripts = player:FindFirstChild("PlayerScripts")
 	if not playerScripts then
@@ -48,10 +50,7 @@ local function getControls()
 	local okControls, controls = pcall(function()
 		return playerModule:GetControls()
 	end)
-	if okControls then
-		return controls
-	end
-	return nil
+	return okControls and controls or nil
 end
 
 local function disableControls()
@@ -72,26 +71,27 @@ local function enableControls()
 	end
 end
 
--- Idempotent cleanup: safe to call from skip, error, or normal completion.
+-- ── Cleanup (idempotent) ────────────────────────────────────────────────────
 local function cleanup()
 	if state.finished then
 		return
 	end
 	state.finished = true
 
-	local camera = state.camera
-	local effects = state.effects
-	local audio = state.audio
-	local ui = state.ui
-	state.camera = nil
-	state.effects = nil
-	state.audio = nil
-	state.ui = nil
+	local camera, effects, audio, ui, vfx =
+		state.camera, state.effects, state.audio, state.ui, state.vfx
+	state.camera, state.effects, state.audio, state.ui, state.vfx =
+		nil, nil, nil, nil, nil
 
 	enableControls()
 	if camera then
 		pcall(function()
 			camera:stop()
+		end)
+	end
+	if vfx then
+		pcall(function()
+			vfx:stop()
 		end)
 	end
 	if effects then
@@ -118,52 +118,190 @@ local function requestSkip()
 	state.skipRequested = true
 end
 
--- Wait helper that aborts early when the player skips.
-local function waitOrSkip(seconds)
-	local elapsed = 0
-	local step = 0.05
-	while elapsed < seconds do
-		if state.skipRequested or state.finished then
-			return true
-		end
-		task.wait(step)
-		elapsed = elapsed + step
-	end
-	return state.skipRequested or state.finished
-end
+-- ── Timeline action dispatch ────────────────────────────────────────────────
+local actions = {}
 
--- Graceful ending: fade the overlay out, then release camera/controls.
-local function finishWithFade()
-	if state.finished then
-		return
-	end
+function actions.fadeIn(_, args)
 	if state.ui then
-		pcall(function()
-			state.ui:fadeOut(Config.Fade.FadeOutTime)
-		end)
+		state.ui:fadeIn()
 	end
-	local elapsed = 0
-	while elapsed < Config.Fade.FadeOutTime + 0.15 do
-		if state.finished then
-			return
-		end
-		task.wait(0.05)
-		elapsed = elapsed + 0.05
-	end
-	cleanup()
 end
 
-local function waitForCharacter()
-	local character = player.Character
-	if not character then
-		character = player.CharacterAdded:Wait()
+function actions.fadeOut()
+	if state.ui then
+		state.ui:fadeOut()
 	end
+end
+
+function actions.flash()
+	if state.ui then
+		state.ui:flash()
+	end
+end
+
+function actions.glitch(_, args)
+	if state.ui then
+		state.ui:glitch(args and args[1] or 0.3)
+	end
+end
+
+function actions.tint(_, args)
+	if state.ui then
+		state.ui:pulseTint(args and args[1] or 0.2, args and args[2] or 1.4)
+	end
+end
+
+function actions.vignette(_, args)
+	if state.ui then
+		state.ui:vignette(args and args[1] or 0.5)
+	end
+end
+
+function actions.letterbox(_, args)
+	if state.ui then
+		state.ui:letterbox(args and args[1] ~= false)
+	end
+end
+
+function actions.title()
+	if state.ui then
+		state.ui:showTitle()
+	end
+end
+
+function actions.subtitle()
+	if state.ui then
+		state.ui:showSubtitle()
+	end
+end
+
+function actions.tagline()
+	if state.ui then
+		state.ui:showTagline()
+	end
+end
+
+function actions.blur(_, args)
+	if state.effects then
+		state.effects:setBlur(args and args[1] or 0, 1.0)
+	end
+end
+
+function actions.punch(_, args)
+	if state.effects then
+		state.effects:punch(args and args[1] or 0.2, args and args[2] or 0.8)
+	end
+end
+
+function actions.shake(_, args)
+	if state.camera then
+		state.camera:shake(args and args[1] or 0.8)
+	end
+end
+
+function actions.sfx(_, args)
+	local name = args and args[1]
+	if name and state.audio then
+		state.audio:playCue(name)
+	end
+end
+
+function actions.whoosh()
+	if state.audio then
+		state.audio:playCue("Whoosh")
+	end
+end
+
+function actions.impact()
+	if state.audio then
+		state.audio:playCue("Impact")
+	end
+end
+
+function actions.burst(_, args)
+	if state.vfx then
+		state.vfx:burst(args and args[1] or 1)
+	end
+end
+
+function actions.ring(_, args)
+	if state.vfx then
+		state.vfx:ring(args and args[1] or 1)
+	end
+end
+
+function actions.beams(_, args)
+	if state.vfx then
+		state.vfx:beams(args and args[1] or 1)
+	end
+end
+
+function actions.speedLines(_, args)
+	if state.vfx then
+		state.vfx:speedLines(args and args[1] or 1)
+	end
+end
+
+function actions.embers(_, args)
+	if state.vfx then
+		state.vfx:embers(args and args[1] or 1)
+	end
+end
+
+-- ── Sequence ────────────────────────────────────────────────────────────────
+local function waitForCharacter()
+	local character = player.Character or player.CharacterAdded:Wait()
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid and humanoid.Health <= 0 then
 		humanoid.HealthChanged:Wait()
 	end
 	character:WaitForChild("HumanoidRootPart", 5)
 	return character
+end
+
+local function runTimeline()
+	local timeline = Config.Timeline
+	local index = 1
+	local elapsed = 0
+	local duration = Config.IntroDuration
+	local step = 1 / 30
+
+	while elapsed < duration do
+		if state.skipRequested or state.finished then
+			return true
+		end
+
+		while index <= #timeline and timeline[index].t <= elapsed do
+			local event = timeline[index]
+			local handler = actions[event.action]
+			if handler then
+				local ok, err = pcall(handler, nil, event.args)
+				if not ok then
+					warn("[CinematicIntro] action failed:", event.action, err)
+				end
+			end
+			index = index + 1
+		end
+
+		if state.ui then
+			state.ui:setProgress(elapsed / duration)
+		end
+
+		task.wait(step)
+		elapsed = elapsed + step
+	end
+
+	-- Flush any events scheduled at/after the final tick.
+	while index <= #timeline do
+		local event = timeline[index]
+		local handler = actions[event.action]
+		if handler then
+			pcall(handler, nil, event.args)
+		end
+		index = index + 1
+	end
+
+	return state.skipRequested or state.finished
 end
 
 local function playIntro()
@@ -173,7 +311,6 @@ local function playIntro()
 	state.effects = EffectsManager.new(Config)
 	state.effects:start()
 
-	-- Hold the screen dark first, then reveal the cinematic frame.
 	local playerGui = player:WaitForChild("PlayerGui")
 	local dark = Instance.new("Frame")
 	dark.Name = "IntroDarkStart"
@@ -185,17 +322,16 @@ local function playIntro()
 	dark.Parent = playerGui
 
 	state.ui = UIManager.new(Config, requestSkip)
-	state.ui:fadeIn(Config.Fade.FadeInTime)
 	dark.Parent = state.ui.gui
-	dark.ZIndex = 20
-	TweenService:Create(dark, TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		BackgroundTransparency = 1,
-	}):Play()
-	task.delay(1.6, function()
-		if dark.Parent then
-			dark:Destroy()
-		end
-	end)
+	local TweenService = game:GetService("TweenService")
+	TweenService:Create(
+		dark,
+		TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 1 }
+	):Play()
+
+	state.vfx = VFXManager.new(Config)
+	state.vfx:start()
 
 	state.audio = AudioManager.new(Config)
 	state.audio:start()
@@ -206,70 +342,51 @@ local function playIntro()
 		return
 	end
 
-	-- Scene 1: opening — dark screen, light line, small title hint.
-	state.ui:pulseTint(0.18, 1.6)
-	if waitOrSkip(Config.Audio.SyncPoints.Beat1) then
-		finishWithFade()
-		return
-	end
-
-	-- Scene 2: establish the world, soften blur, cool color grade.
-	state.effects:setBlur(Config.Effects.BlurAmount * 0.4, 1.2)
-	state.ui:pulseTint(0.12, 1.4)
-	if waitOrSkip(Config.Audio.SyncPoints.Beat2 - Config.Audio.SyncPoints.Beat1) then
-		finishWithFade()
-		return
-	end
-
-	-- Scene 3: hero entrance.
-	state.effects:setBlur(0, 1.0)
-	if waitOrSkip(Config.Audio.SyncPoints.Climax - Config.Audio.SyncPoints.Beat2) then
-		finishWithFade()
-		return
-	end
-
-	-- Scene 4: climax — flash, shake, color punch, brief glitch.
-	state.ui:flash()
-	state.effects:punch(0.18, 0.8)
-	task.spawn(function()
-		if state.ui then
-			state.ui:glitch(0.3)
-		end
-	end)
-	if waitOrSkip(Config.Audio.SyncPoints.Title - Config.Audio.SyncPoints.Climax) then
-		finishWithFade()
-		return
-	end
-
-	-- Scene 5: title and welcome text.
-	state.ui:showTitle()
-	task.spawn(function()
-		if state.ui then
-			state.ui:showSubtitle()
+	task.delay(1.5, function()
+		if dark.Parent then
+			dark:Destroy()
 		end
 	end)
 
-	local remaining = math.max(Config.IntroDuration - Config.Audio.SyncPoints.Title, 1.5)
-	if waitOrSkip(remaining) then
-		finishWithFade()
+	state.startedAt = os.clock()
+	local skipped = runTimeline()
+
+	if skipped then
+		if state.ui then
+			pcall(function()
+				state.ui:fadeOut(0.5)
+			end)
+		end
+		task.wait(0.5)
+		cleanup()
 		return
 	end
 
-	state.ui:fadeOut(Config.Fade.FadeOutTime)
-	waitOrSkip(Config.Fade.FadeOutTime + 0.2)
+	-- Graceful ending.
+	if state.ui then
+		pcall(function()
+			state.ui:fadeOut(Config.Fade.FadeOutTime)
+		end)
+	end
+	local elapsed = 0
+	while elapsed < Config.Fade.FadeOutTime + 0.2 do
+		if state.finished then
+			return
+		end
+		task.wait(0.05)
+		elapsed = elapsed + 0.05
+	end
 	cleanup()
 end
 
--- Handle the player leaving / character despawn during the intro.
 local leaveConn = player.AncestryChanged:Connect(function()
 	if not player:IsDescendantOf(game) then
 		cleanup()
 	end
 end)
 
--- Watchdog: make sure the camera/controls are never left locked, even if
--- a scene yields unexpectedly. Scheduled BEFORE the sequence starts.
-task.delay(Config.IntroDuration + 8, function()
+-- Watchdog: never leave the camera or controls locked.
+task.delay(Config.IntroDuration + 10, function()
 	if not state.finished then
 		warn("[CinematicIntro] watchdog released the intro state")
 		cleanup()
@@ -282,3 +399,5 @@ if not ok then
 	cleanup()
 end
 leaveConn:Disconnect()
+
+return nil
