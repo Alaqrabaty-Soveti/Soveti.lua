@@ -30,8 +30,25 @@ function UIManager.new(config, onSkip)
 	self.tweens = {}
 	self.connections = {}
 	self.destroyed = false
+	self.currentTab = "home"
 	self:_build()
 	return self
+end
+
+local function createTabButton(gui, name, position, isActive)
+	local button = Instance.new("TextButton")
+	button.Name = name .. "Button"
+	button.Size = UDim2.fromScale(0, 0.1)
+	button.Position = position
+	button.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+	button.BackgroundTransparency = isActive and 0 or 0.5
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 12
+	button.BorderSizePixel = 0
+	button.ZIndex = 5
+	button.Parent = gui
+	return button
 end
 
 function UIManager:_build()
@@ -48,249 +65,355 @@ function UIManager:_build()
 	gui.Parent = playerGui
 	self.gui = gui
 
-	-- Backdrop (fade layer)
-	local backdrop = Instance.new("Frame")
-	backdrop.Name = "Backdrop"
-	backdrop.Size = UDim2.fromScale(1, 1)
-	backdrop.BackgroundColor3 = colors.Background
-	backdrop.BackgroundTransparency = 0
-	backdrop.BorderSizePixel = 0
-	backdrop.ZIndex = 1
-	backdrop.Parent = gui
-	self.backdrop = backdrop
+	-- ==========================================
+	-- TOP BAR + TAB BAR
+	-- ==========================================
+	self.topBar = Instance.new("Frame")
+	self.topBar.Name = "TopBar"
+	self.topBar.Size = UDim2.fromScale(1, 0.08)
+	self.topBar.Position = UDim2.fromScale(0, 0)
+	self.topBar.BackgroundColor3 = colors.Background
+	self.topBar.BackgroundTransparency = 0.2
+	self.topBar.BorderSizePixel = 0
+	self.topBar.ZIndex = 1
+	self.topBar.Parent = gui
 
-	-- Colour tint
-	local tint = Instance.new("Frame")
-	tint.Name = "Tint"
-	tint.Size = UDim2.fromScale(1, 1)
-	tint.BackgroundColor3 = colors.Accent
-	tint.BackgroundTransparency = 1
-	tint.BorderSizePixel = 0
-	tint.ZIndex = 2
-	tint.Parent = gui
-	self.tint = tint
+	-- Tab buttons container
+	local tabBar = Instance.new("Frame")
+	tabBar.Name = "TabBar"
+	tabBar.Size = UDim2.fromScale(1, 1)
+	tabBar.Position = UDim2.fromScale(0, 0)
+	tabBar.BackgroundTransparency = 1
+	tabBar.BorderSizePixel = 0
+	tabBar.ZIndex = 2
+	tabBar.Parent = self.topBar
 
-	-- Vignette (radial darkening via gradient)
-	local vignette = Instance.new("Frame")
-	vignette.Name = "Vignette"
-	vignette.Size = UDim2.fromScale(1, 1)
-	vignette.BackgroundColor3 = Color3.new(0, 0, 0)
-	vignette.BackgroundTransparency = 1
-	vignette.BorderSizePixel = 0
-	vignette.ZIndex = 3
-	vignette.Parent = gui
-	local vigGradient = Instance.new("UIGradient")
-	vigGradient.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.55, 0.85),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	vigGradient.Parent = vignette
-	self.vignette = vignette
+	-- Define tabs
+	self.tabs = {
+		["home"] = { title = "الرئيسية", icon = "🏠" },
+		["sky"] = { title = "السماء", icon = "🌌" },
+		["graphics"] = { title = "تعزيز الرسوم", icon = "✨" },
+		["settings"] = { title = "الإعدادات", icon = "⚙️" },
+	}
 
-	-- Letterbox bars
-	local function makeBar(name, anchorPos)
-		local bar = Instance.new("Frame")
-		bar.Name = name
-		bar.Size = UDim2.fromScale(1, 0.11)
-		bar.Position = anchorPos
-		bar.BackgroundColor3 = Color3.new(0, 0, 0)
-		bar.BackgroundTransparency = 1
-		bar.BorderSizePixel = 0
-		bar.ZIndex = 4
-		bar.Parent = gui
-		return bar
+	-- Create tab buttons
+	self.tabButtons = {}
+	local buttonWidth = 1 / #self.tabs
+	local tabNames = {"home", "sky", "graphics", "settings"}
+	for i, tabName in ipairs(tabNames) do
+		local btn = createTabButton(tabBar, tabName, UDim2.fromScale((i - 1) * buttonWidth, 0), false)
+		btn.Size = UDim2.fromScale(buttonWidth, 1)
+		btn.Text = self.tabs[tabName].icon .. " " .. self.tabs[tabName].title
+		btn.Parent = tabBar
+		self.tabButtons[tabName] = btn
+
+		-- Click handler
+		local finalTab = tabName
+		table.insert(self.connections, btn.MouseButton1Click:Connect(function()
+			self:switchTab(finalTab)
+		end))
 	end
-	self.topBar = makeBar("TopBar", UDim2.fromScale(0, 0))
-	self.bottomBar = makeBar("BottomBar", UDim2.fromScale(0, 0.89))
 
-	-- Title block
-	local titleFrame = Instance.new("Frame")
-	titleFrame.Name = "TitleFrame"
-	titleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	titleFrame.Position = UDim2.fromScale(0.5, 0.5)
-	titleFrame.Size = UDim2.fromScale(0.9, 0.42)
-	titleFrame.BackgroundTransparency = 1
-	titleFrame.ZIndex = 5
-	titleFrame.Parent = gui
-	self.titleFrame = titleFrame
+	-- Activate first tab
+	self:switchTab("home")
 
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Vertical
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.Padding = UDim.new(0, 8)
-	layout.Parent = titleFrame
+	-- ==========================================
+	-- MAIN CONTENT AREA (below tab bar)
+	-- ==========================================
+	local contentArea = Instance.new("Frame")
+	contentArea.Name = "ContentArea"
+	contentArea.Size = UDim2.fromScale(1, 0.92)
+	contentArea.Position = UDim2.fromScale(0, 0.08)
+	contentArea.BackgroundTransparency = 1
+	contentArea.BorderSizePixel = 0
+	contentArea.ZIndex = 1
+	contentArea.Parent = gui
+	self.contentArea = contentArea
 
-	-- Tagline (small caps above title)
-	local tagline = Instance.new("TextLabel")
-	tagline.Name = "Tagline"
-	tagline.BackgroundTransparency = 1
-	tagline.Size = UDim2.new(1, 0, 0.1, 0)
-	tagline.Font = Enum.Font.GothamMedium
-	tagline.Text = self.config.Tagline
-	tagline.TextColor3 = colors.Gold
-	tagline.TextSize = 13
-	tagline.TextTransparency = 1
-	tagline.ZIndex = 5
-	tagline.Parent = titleFrame
-	self.tagline = tagline
+	-- Home tab content
+	self:_buildHomeTab(contentArea)
+	-- Sky tab content
+	self:_buildSkyTab(contentArea)
+	-- Graphics tab content
+	self:_buildGraphicsTab(contentArea)
+	-- Settings tab content
+	self:_buildSettingsTab(contentArea)
 
-	-- Title
+	-- Initially show home tab
+	self:switchTab("home")
+end
+
+function UIManager:_buildHomeTab(parent)
+	local frame = Instance.new("Frame")
+	frame.Name = "HomeTab"
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.Visible = true
+	frame.Parent = parent
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -20, 0.3, 0)
+	label.Position = UDim2.fromScale(0, 0.2)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.Text = "أهلاً بك في CinematicIntro"
+	label.TextColor3 = colors.Accent
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.Parent = frame
+end
+
+function UIManager:_buildSkyTab(parent)
+	local frame = Instance.new("Frame")
+	frame.Name = "SkyTab"
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.Visible = false
+	frame.Parent = parent
+
 	local title = Instance.new("TextLabel")
-	title.Name = "Title"
+	title.Size = UDim2.new(1, -20, 0, 30)
+	title.Position = UDim2.fromScale(0, 0.1)
 	title.BackgroundTransparency = 1
-	title.Size = UDim2.new(1, 0, 0.5, 0)
-	title.Font = Enum.Font.GothamBlack
-	title.Text = self.config.Title
-	title.TextColor3 = colors.Title
+	title.Font = Enum.Font.GothamBold
+	title.Text = "🌌 نظام السماء"
+	title.TextColor3 = colors.Accent
 	title.TextScaled = true
-	title.TextTransparency = 1
-	title.TextWrapped = true
-	title.ZIndex = 5
-	title.Parent = titleFrame
-	self.title = title
+	title.Parent = frame
 
-	local titleSize = Instance.new("UITextSizeConstraint")
-	titleSize.MaxTextSize = 78
-	titleSize.MinTextSize = 18
-	titleSize.Parent = title
+	-- Preset selector instructions
+	local info = Instance.new("TextLabel")
+	info.Size = UDim2.new(1, -20, 0, 80)
+	info.Position = UDim2.fromScale(0, 0.2)
+	info.BackgroundTransparency = 1
+	info.Font = Enum.Font.GothamMedium
+	info.Text = "حدد مسبقاً لسماء:\n1. شimmering Stars - سماء ليلية متوهجة\n2. Sunset Glow - غروب دائم\n3. Midday Bright - ضوء نهاري\n4. Neon Night - ليلية نيون\n5. Custom Color - لون مخصص"
+	info.TextColor3 = Color3.new(1, 1, 1)
+	info.TextScaled = true
+	info.TextWrapped = true
+	info.Parent = frame
 
-	local titleStroke = Instance.new("UIStroke")
-	titleStroke.Color = colors.Accent
-	titleStroke.Thickness = 1.5
-	titleStroke.Transparency = 1
-	titleStroke.Parent = title
-	self.titleStroke = titleStroke
-
-	-- Accent rule
-	local accentLine = Instance.new("Frame")
-	accentLine.Name = "AccentLine"
-	accentLine.Size = UDim2.new(0, 0, 0, 2)
-	accentLine.BackgroundColor3 = colors.Gold
-	accentLine.BackgroundTransparency = 1
-	accentLine.BorderSizePixel = 0
-	accentLine.ZIndex = 5
-	accentLine.Parent = titleFrame
-	self.accentLine = accentLine
-
-	-- Subtitle
-	local subtitle = Instance.new("TextLabel")
-	subtitle.Name = "Subtitle"
-	subtitle.BackgroundTransparency = 1
-	subtitle.Size = UDim2.new(1, 0, 0.18, 0)
-	subtitle.Font = Enum.Font.GothamMedium
-	subtitle.Text = self.config.Subtitle
-	subtitle.TextColor3 = colors.Subtitle
-	subtitle.TextScaled = true
-	subtitle.TextTransparency = 1
-	subtitle.TextWrapped = true
-	subtitle.ZIndex = 5
-	subtitle.Parent = titleFrame
-	self.subtitle = subtitle
-
-	local subtitleSize = Instance.new("UITextSizeConstraint")
-	subtitleSize.MaxTextSize = 26
-	subtitleSize.MinTextSize = 11
-	subtitleSize.Parent = subtitle
-
-	-- Progress bar (bottom, thin)
-	local progressTrack = Instance.new("Frame")
-	progressTrack.Name = "ProgressTrack"
-	progressTrack.AnchorPoint = Vector2.new(0.5, 1)
-	progressTrack.Position = UDim2.new(0.5, 0, 1, -18)
-	progressTrack.Size = UDim2.new(0.32, 0, 0, 2)
-	progressTrack.BackgroundColor3 = colors.Accent
-	progressTrack.BackgroundTransparency = 1
-	progressTrack.BorderSizePixel = 0
-	progressTrack.ZIndex = 6
-	progressTrack.Visible = self.config.ShowProgressBar
-	progressTrack.Parent = gui
-	self.progressTrack = progressTrack
-
-	local progressFill = Instance.new("Frame")
-	progressFill.Name = "Fill"
-	progressFill.Size = UDim2.fromScale(0, 1)
-	progressFill.BackgroundColor3 = colors.Gold
-	progressFill.BackgroundTransparency = 0.15
-	progressFill.BorderSizePixel = 0
-	progressFill.ZIndex = 6
-	progressFill.Parent = progressTrack
-	self.progressFill = progressFill
-
-	-- Skip button
-	local skip = Instance.new("TextButton")
-	skip.Name = "SkipButton"
-	skip.AnchorPoint = Vector2.new(1, 1)
-	skip.Position = UDim2.new(1, -22, 1, -22)
-	skip.Size = UDim2.fromOffset(128, 42)
-	skip.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
-	skip.BackgroundTransparency = 0.35
-	skip.BorderSizePixel = 0
-	skip.Font = Enum.Font.GothamMedium
-	skip.Text = self.config.SkipButtonText
-	skip.TextColor3 = colors.Title
-	skip.TextSize = 17
-	skip.TextTransparency = 1
-	skip.BackgroundTransparency = 1
-	skip.AutoButtonColor = true
-	skip.Visible = self.config.ShowSkipButton
-	skip.ZIndex = 7
-	skip.Parent = gui
-	self.skipButton = skip
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
-	corner.Parent = skip
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = colors.Accent
-	stroke.Transparency = 1
-	stroke.Thickness = 1
-	stroke.Parent = skip
-	self.skipStroke = stroke
-
-	table.insert(self.connections, skip.MouseButton1Click:Connect(function()
-		if self.onSkip then
-			self.onSkip("button")
+	-- Apply button
+	local applyBtn = Instance.new("TextButton")
+	applyBtn.Name = "ApplySkyBtn"
+	applyBtn.Size = UDim2.new(0.4, 0, 0, 30)
+	applyBtn.Position = UDim2.fromScale(0.3, 0.6)
+	applyBtn.BackgroundColor3 = colors.Accent
+	applyBtn.BackgroundTransparency = 0
+	applyBtn.TextColor3 = Color3.new(1, 1, 1)
+	applyBtn.Font = Enum.Font.GothamBold
+	applyBtn.TextSize = 12
+	applyBtn.BorderSizePixel = 0
+	applyBtn.Text = "تطبيق"
+	applyBtn.Parent = frame
+	table.insert(self.connections, applyBtn.MouseButton1Click:Connect(function()
+		local success = require(script.Parent.Parent .. ".SkyManager"):applyPreset("Shimmering Stars", true, 1.5)
+		if success then
+			info.Text = "✅ تم تطبيق السماء: Shimmering Stars"
+		else
+			info.Text = "❌ فشل تطبيق السماء"
 		end
 	end))
 
-	-- Flash overlay
-	local flash = Instance.new("Frame")
-	flash.Name = "Flash"
-	flash.Size = UDim2.fromScale(1, 1)
-	flash.BackgroundColor3 = Color3.new(1, 1, 1)
-	flash.BackgroundTransparency = 1
-	flash.BorderSizePixel = 0
-	flash.ZIndex = 10
-	flash.Parent = gui
-	self.flash = flash
-
-	-- Glitch overlay (scanlines)
-	local glitch = Instance.new("Frame")
-	glitch.Name = "Glitch"
-	glitch.Size = UDim2.fromScale(1, 1)
-	glitch.BackgroundColor3 = colors.Accent
-	glitch.BackgroundTransparency = 1
-	glitch.BorderSizePixel = 0
-	glitch.ZIndex = 9
-	glitch.Parent = gui
-	self.glitchFrame = glitch
-
-	table.insert(self.connections, UserInputService.InputBegan:Connect(function(input, processed)
-		if processed or self.destroyed then
-			return
-		end
-		for _, key in ipairs(self.config.SkipKeys) do
-			if input.KeyCode == key then
-				if self.onSkip then
-					self.onSkip("key")
-				end
-				return
-			end
-		end
+	-- Restore button
+	local restoreBtn = Instance.new("TextButton")
+	restoreBtn.Name = "RestoreSkyBtn"
+	restoreBtn.Size = UDim2.new(0.4, 0, 0, 30)
+	restoreBtn.Position = UDim2.fromScale(0.3, 0.7)
+	restoreBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+	restoreBtn.BackgroundTransparency = 0
+	restoreBtn.TextColor3 = Color3.new(1, 1, 1)
+	restoreBtn.Font = Enum.Font.GothamBold
+	restoreBtn.TextSize = 12
+	restoreBtn.BorderSizePixel = 0
+	restoreBtn.Text = "استعادة الأصلية"
+	restoreBtn.Parent = frame
+	table.insert(self.connections, restoreBtn.MouseButton1Click:Connect(function()
+		require(script.Parent.Parent .. ".SkyManager"):restoreOriginal()
+		info.Text = "🔄 تم استعادة إعدادات السماء الأصلية"
 	end))
+end
+
+function UIManager:_buildGraphicsTab(parent)
+	local frame = Instance.new("Frame")
+	frame.Name = "GraphicsTab"
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.Visible = false
+	frame.Parent = parent
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -20, 0, 30)
+	title.Position = UDim2.fromScale(0, 0.1)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBold
+	title.Text = "✨ تعزيز الرسوم"
+	title.TextColor3 = colors.Accent
+	title.TextScaled = true
+	title.Parent = frame
+
+	local info = Instance.new("TextLabel")
+	info.Size = UDim2.new(1, -20, 0, 80)
+	info.Position = UDim2.fromScale(0, 0.2)
+	info.BackgroundTransparency = 1
+	info.Font = Enum.Font.GothamMedium
+	info.Text = "حدد جودة الرسوم:\n1. Ultra Quality - جودة عالية (تتطلب جهاز جيد)\n2. High Performance - أداء عالي\n3. Cinematic - مظهر سينمائي\n4. Mobile Safe - متوافق مع جميع الأجهزة"
+	info.TextColor3 = Color3.new(1, 1, 1)
+	info.TextScaled = true
+	info.TextWrapped = true
+	info.Parent = frame
+
+	-- Apply button for each preset
+	local function createApplyBtn(presetName, presetDesc)
+		local btn = Instance.new("TextButton")
+		btn.Name = presetName .. "Btn"
+		btn.Size = UDim2.new(0.8, 0, 0, 30)
+		btn.Position = UDim2.fromScale(0.1, 0.4 + 0.15 * (presetName == "Ultra Quality" and 0 or presetName == "High Performance" and 1 or presetName == "Cinematic" and 2 or 3))
+		btn.BackgroundColor3 = colors.Accent
+		btn.BackgroundTransparency = 0
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 11
+		btn.BorderSizePixel = 0
+		btn.Text = presetDesc
+		btn.Parent = frame
+		table.insert(self.connections, btn.MouseButton1Click:Connect(function()
+			local success = require(script.Parent.Parent .. ".GraphicsEnhancer"):applyPreset(presetName)
+			info.Text = "✅ تم تطبيق: " .. presetDesc
+		end))
+	end
+
+	createApplyBtn("Ultra Quality", "Ultra Quality")
+	createApplyBtn("High Performance", "High Performance")
+	createApplyBtn("Cinematic", "Cinematic")
+	createApplyBtn("Mobile Safe", "Mobile Safe")
+
+	-- Restore button
+	local restoreBtn = Instance.new("TextButton")
+	restoreBtn.Name = "RestoreGraphicsBtn"
+	restoreBtn.Size = UDim2.new(0.8, 0, 0, 30)
+	restoreBtn.Position = UDim2.fromScale(0.1, 0.9)
+	restoreBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+	restoreBtn.BackgroundTransparency = 0
+	restoreBtn.TextColor3 = Color3.new(1, 1, 1)
+	restoreBtn.Font = Enum.Font.GothamBold
+	restoreBtn.TextSize = 11
+	restoreBtn.BorderSizePixel = 0
+	restoreBtn.Text = "استعادة الأصلية"
+	restoreBtn.Parent = frame
+	table.insert(self.connections, restoreBtn.MouseButton1Click:Connect(function()
+		require(script.Parent.Parent .. ".GraphicsEnhancer"):restoreOriginal()
+		info.Text = "🔄 تم استعادة إعدادات الرسوم الأصلية"
+	end))
+end
+
+function UIManager:_buildSettingsTab(parent)
+	local frame = Instance.new("Frame")
+	frame.Name = "SettingsTab"
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.Visible = false
+	frame.Parent = parent
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -20, 0, 30)
+	title.Position = UDim2.fromScale(0, 0.1)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBold
+	title.Text = "⚙️ الإعدادات"
+	title.TextColor3 = colors.Accent
+	title.TextScaled = true
+	title.Parent = frame
+
+	local info = Instance.new("TextLabel")
+	info.Size = UDim2.new(1, -20, 0, 80)
+	info.Position = UDim2.fromScale(0, 0.2)
+	info.BackgroundTransparency = 1
+	info.Font = Enum.Font.GothamMedium
+	info.Text = "خيارات إضافية:\n- تعطيل جميع الميزات\n- إعادة تعيين كل شيء للأصلي\n- معلومات عن النظام"
+	info.TextColor3 = Color3.new(1, 1, 1)
+	info.TextScaled = true
+	info.TextWrapped = true
+	info.Parent = frame
+
+	local disableAllBtn = Instance.new("TextButton")
+	disableAllBtn.Name = "DisableAllBtn"
+	disableAllBtn.Size = UDim2.new(0.8, 0, 0, 30)
+	disableAllBtn.Position = UDim2.fromScale(0.1, 0.5)
+	disableAllBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+	disableAllBtn.BackgroundTransparency = 0
+	disableAllBtn.TextColor3 = Color3.new(1, 1, 1)
+	disableAllBtn.Font = Enum.Font.GothamBold
+	disableAllBtn.TextSize = 12
+	disableAllBtn.BorderSizePixel = 0
+	disableAllBtn.Text = "تعطيل جميع الميزات"
+	disableAllBtn.Parent = frame
+	table.insert(self.connections, disableAllBtn.MouseButton1Click:Connect(function()
+		require(script.Parent.Parent .. ".SkyManager"):restoreOriginal()
+		require(script.Parent.Parent .. ".GraphicsEnhancer"):restoreOriginal()
+		info.Text = "🛑 تم تعطيل جميع الميزات"
+	end))
+
+	local resetAllBtn = Instance.new("TextButton")
+	resetAllBtn.Name = "ResetAllBtn"
+	resetAllBtn.Size = UDim2.new(0.8, 0, 0, 30)
+	resetAllBtn.Position = UDim2.fromScale(0.1, 0.6)
+	resetAllBtn.BackgroundColor3 = colors.Accent
+	resetAllBtn.BackgroundTransparency = 0
+	resetAllBtn.TextColor3 = Color3.new(1, 1, 1)
+	resetAllBtn.Font = Enum.Font.GothamBold
+	resetAllBtn.TextSize = 12
+	resetAllBtn.BorderSizePixel = 0
+	resetAllBtn.Text = "إعادة التعيين الكاملة"
+	resetAllBtn.Parent = frame
+	table.insert(self.connections, resetAllBtn.MouseButton1Click:Connect(function()
+		require(script.Parent.Parent .. ".SkyManager"):restoreOriginal()
+		require(script.Parent.Parent .. ".GraphicsEnhancer"):restoreOriginal()
+		info.Text = "↺ تم إعادة التعيين الكامل"
+	end))
+end
+
+function UIManager:switchTab(tabName)
+	if self.destroyed then
+		return
+	end
+	self.currentTab = tabName
+
+	-- Update tab button appearances
+	local tabNames = {"home", "sky", "graphics", "settings"}
+	for i, name in ipairs(tabNames) do
+		local btn = self.tabButtons[name]
+		if name == tabName then
+			btn.BackgroundTransparency = 0
+			btn.TextColor3 = colors.Accent
+		else
+			btn.BackgroundTransparency = 0.5
+			btn.TextColor3 = Color3.new(1, 1, 1)
+		end
+	end
+
+	-- Hide all tab contents
+	for _, name in ipairs(tabNames) do
+		if self:findTabContent(name) then
+			self:findTabContent(name).Visible = false
+		end
+	end
+
+	-- Show the selected tab content
+local selectedContent = self:findTabContent(tabName)
+	if selectedContent then
+		selectedContent.Visible = true
+	end
+end
+
+function UIManager:findTabContent(tabName)
+	local tabContents = {
+		home = self.gui:FindFirstChild("HomeTab"),
+		sky = self.gui:FindFirstChild("SkyTab"),
+		graphics = self.gui:FindFirstChild("GraphicsTab"),
+		settings = self.gui:FindFirstChild("SettingsTab"),
+	}
+	return tabContents[tabName]
 end
 
 -- ── Transitions ─────────────────────────────────────────────────────────────
@@ -438,6 +561,21 @@ function UIManager:setProgress(ratio)
 		return
 	end
 	self.progressFill.Size = UDim2.fromScale(math.clamp(ratio, 0, 1), 1)
+end
+
+function UIManager:disable()
+	if self.destroyed then
+		return
+	end
+	-- Switch to home tab and hide effects
+	self:switchTab("home")
+	-- Restore original graphics and sky
+	pcall(function()
+		require(script.Parent.Parent .. ".SkyManager"):restoreOriginal()
+	end)
+	pcall(function()
+		require(script.Parent.Parent .. ".GraphicsEnhancer"):restoreOriginal()
+	end)
 end
 
 function UIManager:destroy()

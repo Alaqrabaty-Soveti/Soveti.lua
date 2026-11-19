@@ -213,4 +213,110 @@ Config.Timeline = {
 	{ t = 21.10, action = "fadeOut" },
 }
 
+-- ── Sky presets ─────────────────────────────────────────────────────────────
+-- Definitions used by SkyManager module. Keys must match SkyPreset names.
+Config.SkyPresets = {
+	["Shimmering Stars"] = {
+		TopSky = "rbxassetid://1314888932",
+		BottomSky = "rbxassetid://1314888891",
+		StarCount = 1500,
+		OutdoorAmbient = Color3.fromRGB(10, 10, 30),
+		Brightness = 0.5,
+		GlobalShadows = false,
+	},
+	["Sunset Glow"] = {
+		TopSky = "rbxassetid://1314456216",
+		BottomSky = "rbxassetid://1314456185",
+		StarCount = 0,
+		OutdoorAmbient = Color3.fromRGB(255, 100, 50),
+		Brightness = 1.0,
+		GlobalShadows = true,
+	},
+	["Midday Bright"] = {
+		TopSky = "rbxassetid://1314446120",
+		BottomSky = "rbxassetid://1314446095",
+		StarCount = 0,
+		OutdoorAmbient = Color3.fromRGB(170, 170, 170),
+		Brightness = 2.0,
+		GlobalShadows = true,
+	},
+	["Neon Night"] = {
+		TopSky = "rbxassetid://1314467706",
+		BottomSky = "rbxassetid://1314467680",
+		StarCount = 500,
+		OutdoorAmbient = Color3.fromRGB(0, 0, 20),
+		Brightness = 0.2,
+		GlobalShadows = false,
+	},
+	["Custom Color"] = {
+		TopSky = "rbxassetid://61604747",
+		BottomSky = "rbxassetid://61604746",
+		StarCount = 0,
+		OutdoorAmbient = Color3.fromRGB(128, 128, 128),
+		Brightness = 1.0,
+		GlobalShadows = true,
+	},
+}
+
+-- ── Graphics presets ────────────────────────────────────────────────────────
+-- Definitions used by GraphicsEnhancer module. Keys must match preset names.
+Config.GraphicsPresets = {
+	["Ultra Quality"] = {
+		["BloomIntensity"] = 0.8,
+		["BloomSize"] = 85,
+		["BloomThreshold"] = 0.5,
+		["ColorCorrectionEnabled"] = true,
+		["ColorCorrectionHue"] = 0.02,
+		["ColorCorrectionSat"] = 0.01,
+		["ColorCorrectionBright"] = 0.01,
+		["GlobalShadows"] = true,
+		["ShadowDensity"] = 0.5,
+		["AtmosphereDensity"] = 0.3,
+		["AtmosphereColor"] = Color3.fromRGB(135, 206, 250),
+		["Brightness"] = 1.0,
+	},
+	["High Performance"] = {
+		["BloomIntensity"] = 0.0,
+		["BloomSize"] = 0,
+		["BloomThreshold"] = 0.0,
+		["ColorCorrectionEnabled"] = false,
+		["ColorCorrectionHue"] = 0.0,
+		["ColorCorrectionSat"] = 0.0,
+		["ColorCorrectionBright"] = 0.0,
+		["GlobalShadows"] = false,
+		["ShadowDensity"] = 0.0,
+		["AtmosphereDensity"] = 0.01,
+		["AtmosphereColor"] = Color3.fromRGB(0, 0, 0),
+		["Brightness"] = 0.5,
+	},
+	["Cinematic"] = {
+		["BloomIntensity"] = 0.5,
+		["BloomSize"] = 50,
+		["BloomThreshold"] = 0.6,
+		["ColorCorrectionEnabled"] = true,
+		["ColorCorrectionHue"] = -0.01,
+		["ColorCorrectionSat"] = -0.02,
+		["ColorCorrectionBright"] = -0.01,
+		["GlobalShadows"] = true,
+		["ShadowDensity"] = 0.7,
+		["AtmosphereDensity"] = 0.2,
+		["AtmosphereColor"] = Color3.fromRGB(100, 80, 150),
+		["Brightness"] = 0.8,
+	},
+	["Mobile Safe"] = {
+		["BloomIntensity"] = 0.0,
+		["BloomSize"] = 0,
+		["BloomThreshold"] = 0.0,
+		["ColorCorrectionEnabled"] = false,
+		["ColorCorrectionHue"] = 0.0,
+		["ColorCorrectionSat"] = 0.0,
+		["ColorCorrectionBright"] = 0.0,
+		["GlobalShadows"] = false,
+		["ShadowDensity"] = 0.0,
+		["AtmosphereDensity"] = 0.0,
+		["AtmosphereColor"] = Color3.fromRGB(0, 0, 0),
+		["Brightness"] = 0.3,
+	},
+}
+
 return Config
